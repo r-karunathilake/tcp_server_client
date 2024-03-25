@@ -24,11 +24,7 @@
 
 #include "utility.h" 
 
-#define PORT "3456"
 #define MAXDATASIZE 100 // Maximum number of bytes to be received 
-
-// Function prototypes 
-
 
 int main(int argc, char *argv[]){
     int sock_fd;
@@ -37,8 +33,8 @@ int main(int argc, char *argv[]){
     struct addrinfo *clientinfo_res; 
 
     // Check correct number of arguments provided 
-    if (argc != 2){
-        fprintf(stderr, "usage: client hostname\n");
+    if (argc != 3){
+        fprintf(stderr, "usage: ./client server_hostname server_port\n");
         exit(1);
     }
 
@@ -47,7 +43,8 @@ int main(int argc, char *argv[]){
     hints.ai_socktype = SOCK_STREAM;
 
     int status = -1;
-    if((status = getaddrinfo(NULL, PORT, &hints, &clientinfo_res)) != 0){
+    // argv[1] - server host name, argv[2] - server port number
+    if((status = getaddrinfo(argv[1], argv[2], &hints, &clientinfo_res)) != 0){
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
         return 1;
     }

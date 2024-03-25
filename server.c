@@ -68,11 +68,11 @@ Note: All port numbers below 1024 are reserved, and any port above
 
 // Function prototypes
 void sigChildHandler(int); 
-void childProcess(int sock_fd, int connection_fd);
+void childProcess(int listener_fd, int new_connection_fd);
 
 int main(int argc, char* argv[]){
-    int sock_fd;                        // Server will listen on this fd 
-    int new_con_fd;                     // New server connections on this fd
+    int listener_fd;                        // Server will listen on this fd 
+    int new_connection_fd;                     // New server connections on this fd
     struct addrinfo hints;              // Starting socket configuration 
     struct addrinfo *servinfo_res;      // Head of the linked list populated by 'getaddrinfo()' call
     struct sockaddr_storage con_addr;   // Incoming connection address information 
@@ -80,10 +80,10 @@ int main(int argc, char* argv[]){
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;  
     hints.ai_socktype = SOCK_STREAM;
-    //hints.ai_flags = AI_PASSIVE;        // Use current host IP as part of the socket
+    hints.ai_flags = AI_PASSIVE;        // Use current host IP as part of the socket
 
     int status = -1; 
-    if ((status = getaddrinfo("localhost", PORT, &hints, &servinfo_res)) != 0){
+    if ((status = getaddrinfo(NULL, PORT, &hints, &servinfo_res)) != 0){
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
         return 1; 
     }
@@ -93,7 +93,7 @@ int main(int argc, char* argv[]){
     struct addrinfo *p;
     for(p = servinfo_res; p != NULL; p = p->ai_next){
         // Make a socket
-        if((sock_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
+        if((listener_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
             perror("server: socket creation");
             continue;
         }
@@ -103,14 +103,14 @@ int main(int argc, char* argv[]){
 
         // Ensure socket is clearned from the kernel cleanly after disconnection
         int yes = 1;
-        if(setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1){
+        if(setsockopt(listener_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1){
             perror("server: socket level options");
             exit(1);
         }
 
         // Bind the socket to the port 
-        if(bind(sock_fd, p->ai_addr, p->ai_addrlen) == -1){
-            close(sock_fd);
+        if(bind(listener_fd, p->ai_addr, p->ai_addrlen) == -1){
+            close(listener_fd);
             perror("server: socket bind");
             continue; 
         }
@@ -128,7 +128,7 @@ int main(int argc, char* argv[]){
     }
 
     // Server will listen to incoming connections 
-    if(listen(sock_fd, BACKLOG) == -1){
+    if(listen(listener_fd, BACKLOG) == -1){
         perror("server: listening");
         exit(1);
     }
@@ -149,7 +149,7 @@ int main(int argc, char* argv[]){
     while(1){
         // Accept pending connection requests 
         socklen_t con_addr_size = sizeof(con_addr);
-        if((new_con_fd = accept(sock_fd, (struct sockaddr *)&con_addr, &con_addr_size)) == -1){
+        if((new_connection_fd = accept(listener_fd, (struct sockaddr *)&con_addr, &con_addr_size)) == -1){
             perror("server: accepting connection");
             continue; 
         }
@@ -166,16 +166,17 @@ int main(int argc, char* argv[]){
         address space copy as needed to the child.*/
 
         if(!fork()){ // Execute if this is the child process  
-            childProcess(sock_fd, new_con_fd); 
+            childProcess(listener_fd, new_connection_fd); 
         }
-        close(new_con_fd); // No longer needed by the parent process 
+        close(new_connection_fd); // No longer needed by the parent process 
     }
 
     return 0;
 }
 
 void sigChildHandler(int s){
-    (void) s; 
+    (void) s; // Stop 'unused' compiler warnings 
+
     // Save the 'errno' status as 'waitpid()' might overwrite
     int saved_errono = errno;
 
@@ -185,13 +186,13 @@ void sigChildHandler(int s){
     errno = saved_errono; 
 }
 
-void childProcess(int sock_fd, int con_fd){
-    close(sock_fd); // Child process doesn't need the listener 
+void childProcess(int listener_fd, int new_con_fd){
+    close(listener_fd); // Child process doesn't need the listener 
     char *msg = "Hello, from the other side!";
     size_t bytes_sent = 0; 
-    if((bytes_sent = send(con_fd, msg, strlen(msg), 0)) == -1){
+    if((bytes_sent = send(new_con_fd, msg, strlen(msg), 0)) == -1){
         perror("server: send"); 
     }
-    close(con_fd);
+    close(new_con_fd);
     exit(0);
 }
