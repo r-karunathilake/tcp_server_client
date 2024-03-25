@@ -13,9 +13,11 @@
 */
 #include <stdlib.h> // exit()
 #include <unistd.h> // fork() and close() 
+#include <errno.h> 
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <signal.h>
@@ -64,6 +66,8 @@ Note: All port numbers below 1024 are reserved, and any port above
 // Function prototypes
 void sockAddrPrint(struct addrinfo *);
 void *getSockAddrVx(struct sockaddr *); // Get socket address, IPv4 or IPv6
+void sigChildHandler(int); 
+void childProcess(int sock_fd, int connection_fd);
 
 int main(int argc, char* argv[]){
     int sock_fd;                        // Server will listen on this fd 
@@ -127,6 +131,18 @@ int main(int argc, char* argv[]){
         exit(1);
     }
 
+    // Reap all the zombie processes created by the fork() system call
+    struct sigaction sa; // Action to be taken when a signal arrives 
+    sa.sa_handler = sigChildHandler; 
+    // No additional signals will be blocked while this handler is executing
+    sigemptyset(&sa.sa_mask); 
+    // Restart the system calls if interrupted by another signal
+    sa.sa_flags = SA_RESTART;
+    if(sigaction(SIGCHLD, &sa, NULL) == -1){
+        perror("server: sigaction");
+        exit(1);
+    }
+
     printf("server: listening for connections...\n");
     while(1){
         // Accept pending connection requests 
@@ -141,18 +157,16 @@ int main(int argc, char* argv[]){
                   ipstr, sizeof(ipstr));
         printf("server: received connection from %s\n", ipstr);
 
-        // Fork a child process to handle this connection 
-        if(!fork()){
-            close(sock_fd); // Child process doesn't need the listener 
-            char *msg = "Hello, from the other side!";
-            size_t bytes_sent = 0; 
-            if((bytes_sent = send(new_con_fd, msg, strlen(msg), 0)) == -1){
-                perror("server: send"); 
-            }
-            close(new_con_fd);
-            exit(0);
+        /* Fork a child process to handle this connection. The fork()
+        system call return 0 to the child process and a positive value (PID)
+        to the parent. The returned process ID is of type 'pid_t' defined in 
+        the 'sys/types.h'. Additonally, the Linux kernel will supply a parent
+        address space copy as needed to the child.*/
+
+        if(!fork()){ // Execute if this is the child process  
+            childProcess(sock_fd, new_con_fd); 
         }
-        close(new_con_fd); 
+        close(new_con_fd); // No longer needed by the parent process 
     }
 
     return 0;
@@ -186,4 +200,26 @@ void *getSockAddrVx(struct sockaddr *sa){
     }
     // IPv6
     return &(((struct sockaddr_in6 *) sa)->sin6_addr);
+}
+
+void sigChildHandler(int s){
+    (void) s; 
+    // Save the 'errno' status as 'waitpid()' might overwrite
+    int saved_errono = errno;
+
+    // Wait for all child processses to exit 
+    while(waitpid(-1, NULL, WNOHANG) > 0);
+
+    errno = saved_errono; 
+}
+
+void childProcess(int sock_fd, int con_fd){
+    close(sock_fd); // Child process doesn't need the listener 
+    char *msg = "Hello, from the other side!";
+    size_t bytes_sent = 0; 
+    if((bytes_sent = send(con_fd, msg, strlen(msg), 0)) == -1){
+        perror("server: send"); 
+    }
+    close(con_fd);
+    exit(0);
 }
