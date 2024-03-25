@@ -11,12 +11,14 @@
     Author: Ravindu Karunathilake
     Date:   2024/03/22
 */
-
+#include <stdlib.h> // exit()
+#include <unistd.h> // fork() and close() 
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <signal.h>
 
 /* This port number is used by kernel to match incoming packets to a certain
    process's socket descriptor. 
@@ -59,16 +61,21 @@ Note: All port numbers below 1024 are reserved, and any port above
    structures are 'sockaddr_in' and 'sockaddr_in6'.
 */
 
+// Function prototypes
+void sockAddrPrint(struct addrinfo *);
+void *getSockAddrVx(struct sockaddr *); // Get socket address, IPv4 or IPv6
+
 int main(int argc, char* argv[]){
-    int sock_fd;                   // server will listen on this fd 
-    int new_con_fd;                // new server connections on this fd
-    struct addrinfo hints;         // Starting socket configuration 
-    struct addrinfo *servinfo_res; // head of the linked list populated by 'getaddrinfo()' call
+    int sock_fd;                        // Server will listen on this fd 
+    int new_con_fd;                     // New server connections on this fd
+    struct addrinfo hints;              // Starting socket configuration 
+    struct addrinfo *servinfo_res;      // Head of the linked list populated by 'getaddrinfo()' call
+    struct sockaddr_storage con_addr;   // Incoming connection address information 
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;  
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;   // Use current host IP as part of the socket
+    hints.ai_flags = AI_PASSIVE;        // Use current host IP as part of the socket
 
     int status = -1; 
     if ((status = getaddrinfo(NULL, PORT, &hints, &servinfo_res)) != 0){
@@ -77,29 +84,106 @@ int main(int argc, char* argv[]){
     }
 
     printf("Server IP addresses are:\n\n");
-    for(struct addrinfo *p = servinfo_res; p != NULL; p = p->ai_next){
-        void *addr; 
-        char *ipver; 
-
-        // Get the pointer to the address 
-        if(p->ai_family == AF_INET){ // IPv4
-            struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
-            addr = &(ipv4->sin_addr);
-            ipver = "IPv4"; 
-        }
-        else{ //IPv6
-            struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
-            addr = &(ipv6->sin6_addr);
-            ipver = "IPv6";
+    // Create and bind socket to the first available address 
+    struct addrinfo *p;
+    for(p = servinfo_res; p != NULL; p = p->ai_next){
+        // Make a socket
+        if((sock_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
+            perror("server: socket creation");
+            continue;
         }
 
-        // Print IP address to STDOUT 
-        char ipstr[INET6_ADDRSTRLEN];
-        inet_ntop(p->ai_family, addr, ipstr, sizeof ipstr);
-        printf("    %s: %s\n", ipver, ipstr);
+        // Print the socket address information to STDOUT
+        sockAddrPrint(p);
+
+        // Ensure socket is clearned from the kernel cleanly after disconnection
+        int yes = 1;
+        if(setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1){
+            perror("server: socket level options");
+            exit(1);
+        }
+
+        // Bind the socket to the port 
+        if(bind(sock_fd, p->ai_addr, p->ai_addrlen) == -1){
+            perror("server: socket bind");
+            exit(1);
+        }
+
+        break; // Socket is now created and bound 
     }
 
-    // free the linked list populated by 'getaddrinfo()' call
+    // Free the linked list populated by 'getaddrinfo()' call
     freeaddrinfo(servinfo_res); 
+
+    // Verify socket creation and bind 
+    if(p == NULL){
+        fprintf(stderr, "server: failed to bind socket\n");
+        exit(1);
+    }
+
+    // Server will listen to incoming connections 
+    if(listen(sock_fd, BACKLOG) == -1){
+        perror("server: listening");
+        exit(1);
+    }
+
+    printf("server: listening for connections...\n");
+    while(1){
+        // Accept pending connection requests 
+        socklen_t con_addr_size = sizeof(con_addr);
+        if((new_con_fd = accept(sock_fd, (struct sockaddr *)&con_addr, &con_addr_size)) == -1){
+            perror("server: accepting connection");
+            continue; 
+        }
+
+        char ipstr[INET6_ADDRSTRLEN];
+        inet_ntop(con_addr.ss_family, getSockAddrVx((struct sockaddr *)&con_addr), 
+                  ipstr, sizeof(ipstr));
+        printf("server: received connection from %s\n", ipstr);
+
+        // Fork a child process to handle this connection 
+        if(!fork()){
+            close(sock_fd); // Child process doesn't need the listener 
+            char *msg = "Hello, from the other side!";
+            size_t bytes_sent = 0; 
+            if((bytes_sent = send(new_con_fd, msg, strlen(msg), 0)) == -1){
+                perror("server: send"); 
+            }
+            close(new_con_fd);
+            exit(0);
+        }
+        close(new_con_fd); 
+    }
+
     return 0;
+}
+
+void sockAddrPrint(struct addrinfo *pSockAddr){
+    void *addr; 
+    char *ipver; 
+
+    // Get the pointer to the address 
+    if(pSockAddr->ai_family == AF_INET){ // IPv4
+        struct sockaddr_in *ipv4 = (struct sockaddr_in *)pSockAddr->ai_addr;
+        addr = &(ipv4->sin_addr);
+        ipver = "IPv4"; 
+    }
+    else{ //IPv6
+        struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)pSockAddr->ai_addr;
+        addr = &(ipv6->sin6_addr);
+        ipver = "IPv6";
+    }
+
+    // Print IP address to STDOUT 
+    char ipstr[INET6_ADDRSTRLEN];
+    inet_ntop(pSockAddr->ai_family, addr, ipstr, sizeof ipstr);
+    printf("    %s: %s\n", ipver, ipstr);
+}
+
+void *getSockAddrVx(struct sockaddr *sa){
+    if(sa->sa_family == AF_INET){// IPv4
+        return &(((struct sockaddr_in *) sa)->sin_addr);
+    }
+    // IPv6
+    return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
