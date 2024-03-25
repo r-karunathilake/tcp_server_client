@@ -9,8 +9,9 @@
         Linux kernel version:   5.15.90.1-microsoft-standard-WSL2
         
     Author: Ravindu Karunathilake
-    Date:   2024/03/22
+    Date:   2024/03/25
 */
+
 #include <stdlib.h> // exit()
 #include <unistd.h> // fork() and close() 
 #include <errno.h> 
@@ -18,10 +19,12 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <signal.h>
 
+#include "utility.h"
 /* This port number is used by kernel to match incoming packets to a certain
    process's socket descriptor. 
 
@@ -64,8 +67,6 @@ Note: All port numbers below 1024 are reserved, and any port above
 */
 
 // Function prototypes
-void sockAddrPrint(struct addrinfo *);
-void *getSockAddrVx(struct sockaddr *); // Get socket address, IPv4 or IPv6
 void sigChildHandler(int); 
 void childProcess(int sock_fd, int connection_fd);
 
@@ -79,10 +80,10 @@ int main(int argc, char* argv[]){
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;  
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;        // Use current host IP as part of the socket
+    //hints.ai_flags = AI_PASSIVE;        // Use current host IP as part of the socket
 
     int status = -1; 
-    if ((status = getaddrinfo(NULL, PORT, &hints, &servinfo_res)) != 0){
+    if ((status = getaddrinfo("localhost", PORT, &hints, &servinfo_res)) != 0){
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
         return 1; 
     }
@@ -109,8 +110,9 @@ int main(int argc, char* argv[]){
 
         // Bind the socket to the port 
         if(bind(sock_fd, p->ai_addr, p->ai_addrlen) == -1){
+            close(sock_fd);
             perror("server: socket bind");
-            exit(1);
+            continue; 
         }
 
         break; // Socket is now created and bound 
@@ -170,36 +172,6 @@ int main(int argc, char* argv[]){
     }
 
     return 0;
-}
-
-void sockAddrPrint(struct addrinfo *pSockAddr){
-    void *addr; 
-    char *ipver; 
-
-    // Get the pointer to the address 
-    if(pSockAddr->ai_family == AF_INET){ // IPv4
-        struct sockaddr_in *ipv4 = (struct sockaddr_in *)pSockAddr->ai_addr;
-        addr = &(ipv4->sin_addr);
-        ipver = "IPv4"; 
-    }
-    else{ //IPv6
-        struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)pSockAddr->ai_addr;
-        addr = &(ipv6->sin6_addr);
-        ipver = "IPv6";
-    }
-
-    // Print IP address to STDOUT 
-    char ipstr[INET6_ADDRSTRLEN];
-    inet_ntop(pSockAddr->ai_family, addr, ipstr, sizeof ipstr);
-    printf("    %s: %s\n", ipver, ipstr);
-}
-
-void *getSockAddrVx(struct sockaddr *sa){
-    if(sa->sa_family == AF_INET){// IPv4
-        return &(((struct sockaddr_in *) sa)->sin_addr);
-    }
-    // IPv6
-    return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
 
 void sigChildHandler(int s){
