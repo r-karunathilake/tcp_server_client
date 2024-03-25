@@ -22,21 +22,50 @@
 #include <arpa/inet.h>
 #include <signal.h>
 
+#include <getopt.h>
+static struct option long_options[] = {
+    {"server_hostname", required_argument, 0, 'i'},
+    {"server_port", required_argument, 0, 'p'},
+    {"help", no_argument, 0, 'h'},
+    {0, 0, 0, 0}
+};
+
 #include "utility.h" 
 
 #define MAXDATASIZE 100 // Maximum number of bytes to be received 
 
+// Function prototypes 
+void print_usage();
+
 int main(int argc, char *argv[]){
+    // Check correct number of arguments provided 
+    if (argc == 1){
+        print_usage();
+        exit(EXIT_SUCCESS);
+    }
+    
+    int option;
+    while((option = getopt_long(argc, argv, "i:p:h", long_options, NULL)) != -1){
+        switch(option){
+            case 'i':
+                #define HOSTNAME = optarg;
+                break; 
+            case 'p':
+                #define PORT = optarg; 
+                break;
+            case 'h':
+                print_usage();
+                exit(EXIT_SUCCESS);
+            default:
+                printf("Invalid option or missing argument. Use -h or --help for usage.\n");
+                exit(EXIT_FAILURE);
+        }   
+    }
+
     int sock_fd;
     char buffer[MAXDATASIZE]; 
     struct addrinfo hints; 
     struct addrinfo *clientinfo_res; 
-
-    // Check correct number of arguments provided 
-    if (argc != 3){
-        fprintf(stderr, "usage: ./client server_hostname server_port\n");
-        exit(1);
-    }
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;  
@@ -88,7 +117,7 @@ int main(int argc, char *argv[]){
     size_t bytes_received = 0;
     if((bytes_received = recv(sock_fd, buffer, MAXDATASIZE - 1, 0)) == -1){
         perror("client: recv()");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     buffer[bytes_received] = '\0';
 
@@ -97,4 +126,12 @@ int main(int argc, char *argv[]){
     close(sock_fd);
 
     return 0; 
+}
+
+void print_usage(){
+    printf("Usage: client [ARGUMENTS]\n");
+    printf("Arguments:\n");
+    printf("  -i, --server_hostname <IP or hostname>  Specify the server IP or hostname\n");
+    printf("  -p, --server_port     <port_number>     Specify the server listener port number\n");
+    printf("  -h, --help                              Show this help message\n");
 }
