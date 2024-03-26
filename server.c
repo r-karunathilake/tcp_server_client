@@ -71,8 +71,8 @@ void sigChildHandler(int);
 void childProcess(int listener_fd, int new_connection_fd);
 
 int main(int argc, char* argv[]){
-    int listener_fd;                        // Server will listen on this fd 
-    int new_connection_fd;                     // New server connections on this fd
+    int listener_fd;                    // Server will listen on this fd 
+    int new_connection_fd;              // New server connections on this fd
     struct addrinfo hints;              // Starting socket configuration 
     struct addrinfo *servinfo_res;      // Head of the linked list populated by 'getaddrinfo()' call
     struct sockaddr_storage con_addr;   // Incoming connection address information 
