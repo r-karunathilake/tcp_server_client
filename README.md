@@ -20,7 +20,9 @@ Before compiling and running this program, following prerequisites must be met:
  - HTTPS: `https://github.com/r-karunathilake/tcp_server_client.git`
 
 2. Compile the the server and client programs using your C compiler of choice:
-e.g. `clang -std=gnu17 server.c -o server`
+   - Manually: `clang -std=gnu17 server.c -o server` etc. 
+   - Makefile: `make all` 
+   - Makefile with debug information: `make BUILD=DEV`
 
 ## Usage
 You can run the server as follows: `./server`. This will bind the server to the host IP on port `666` (can be changed by updating the macro in `server.c`).
